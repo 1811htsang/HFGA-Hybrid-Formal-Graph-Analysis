@@ -1,0 +1,3 @@
+/home/shanghuang/CIEDPC/sources/test/build/CMakeFiles/ciedpc_test.dir
+/home/shanghuang/CIEDPC/sources/test/build/CMakeFiles/edit_cache.dir
+/home/shanghuang/CIEDPC/sources/test/build/CMakeFiles/rebuild_cache.dir
