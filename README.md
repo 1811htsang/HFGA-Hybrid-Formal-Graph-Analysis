@@ -33,21 +33,31 @@ For instance, `read()` with `close()` may be a valid pair in a file handling con
 
 ### Specific Weaknesses in Embedded Systems
 
-Dependence on Valgrind: Valgrind is a very resource-intensive tool (in terms of CPU and RAM). Most embedded chips (MCU/MPU) are not capable of running Valgrind directly. Simulation on a PC (as the authors' team did) often doesn't accurately reflect the behavior of the real hardware.
+Memory profiling is limited to only some of peripheral interactions like ITM, SWO, and DWT. Many other interactions with peripherals (e.g., GPIO, UART) are not captured, which can lead to incomplete call graphs and missed bugs. In addition, using Valgrind for dynamic analysis in embedded systems is impractical due to:
 
-Heisenbugs (Measurement-related errors): Adding dynamic analysis tools will change the execution time (timing). In embedded systems, this can obscure actual race conditions or create false timing errors.
+- Resource Constraints: Embedded systems often have limited CPU and memory resources, making it difficult to run Valgrind effectively. On the other side, simulating embedded software on a PC may not accurately reflect the behavior of the real hardware, leading to inaccurate call graphs and bug detection results.
 
-Interrupts and Concurrency: Conventional call graphs do not represent asynchronous interrupt execution flows. In embedded systems, a function may not call another function directly but through a flag variable handled in the ISR (Interrupt Service Routine). Graphs in reports are completely "blind" to this structure.
+- Mismatch between Simulation and Reality: Dynamic analysis may change the actual execution behavior of the embedded software, leading to Heisenbugs (bugs that disappear or change behavior when you try to observe them). This can result in false positives or negatives in bug detection.
+
+- Conventional call graphs do not represent asynchronous interrupt execution flows. In embedded systems, a function may not call another function directly but through a flag variable handled in the ISR (Interrupt Service Routine). Graphs in reports are completely "blind" to this structure.
 
 ### Design and Simulation Phases
 
-Reactiveness: This method is "run-only" and does not offer much support for the design phase. For high applicability in design, methods such as Model Checking or Formal Verification are needed rather than statistical inference based on execution traces.
-The gap between simulation and reality: Using only a sample dataset (30 C++ programs) is too small. In embedded software, interactions with registers and peripherals are the primary source of errors, but call graphs focus only on the relationships between software functions.
+- The previous method is "run-only" and does not offer much support for the design phase. For high applicability in design, methods such as Model Checking or Formal Verification are needed rather than statistical inference based on execution traces.
+- The gap between simulation and reality by using only a sample dataset (30 C++ programs) is too small. In embedded software, interactions with registers and peripherals are the primary source of errors, but call graphs focus only on the relationships between software functions.
 
-## New Philosophy Design 
+## New Philosophy Design
 
 Instead of relying on statistical inference, we will use a more formal method to analyze the call graph and detect potential bugs. This involves:
 
 - KLEE (LLVM) for symbolic execution to explore all possible execution paths and identify potential bugs without relying on execution traces.
 - opt (LLVM) to trace and perform call graph design.
-- Valgrind for memory check.
+- Valgrind on simulation platform to capture memory interactions and peripheral interactions that are not captured in the call graph.
+
+## Roadmap for development process
+
+Stage 1: Multilayer Graph Construction
+Stage 2: Path Exploration with KLEE
+Stage 3: Temporal Logic Invariants
+Stage 4: Dynamic Debugging in a Virtual Environment
+Stage 5: Anomoly Detection and Reporting
