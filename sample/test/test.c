@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
+#include "klee/klee.h"
 #include "test.h"
 #include "ciedpc_core.h"
 #include "ciedpc_task.h"
@@ -86,19 +87,20 @@ int main() {
   
   /* 2. Init TSM cho Blinker */
   ciedpc_tsm_init(&blinker_tsm, blinker_tsm_table, 2, STATE_BLINK_IDLE, NULL);
-
-  /* 3. Tạo luồng Tick giả lập phần cứng */
-  pthread_t tick_tid;
-  pthread_create(&tick_tid, NULL, linux_tick_thread, NULL);
+  
+  /* 3. Tạo symbolic */
+  ui8 symbolic_sig;
+  klee_make_symbolic(&symbolic_sig, sizeof(symbolic_sig), "symbolic_sig");
 
   /* 4. Giả lập một ngắt từ bên ngoài (ISR Bridge) */
   printf("[System] Simulating External Interrupt: Start Button Pressed...\n");
-  ciedpc_task_post_isr(TASK_NORM_CONTROLLER_ID, SIG_USR_START);
+  ciedpc_task_post_isr(TASK_NORM_CONTROLLER_ID, symbolic_sig);
+  
 
   /* 5. Chạy Scheduler (Vòng lặp Kernel) */
-  while (1) {
-    ciedpc_task_scheduler();
-    usleep(100); // Tránh chiếm 100% CPU của Linux
+  for(int i = 0; i < 100; i++) {
+    ciedpc_timer_tick();      // Giả lập nhịp tim hệ thống (thay cho thread)
+    ciedpc_task_scheduler();  // Thực thi logic task
   }
 
   return 0;

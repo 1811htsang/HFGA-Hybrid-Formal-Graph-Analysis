@@ -29,96 +29,114 @@
 /* Đảm bảo ciedpc_timer_tick được biết đến */
 extern void ciedpc_timer_tick(void);
 
-static pthread_mutex_t ciedpc_mutex;
-static pthread_mutexattr_t mutex_attr;
+/* Biến toàn cục cho Mutex và các biến liên quan đến thời gian */
+sta pthread_mutex_t ciedpc_mutex;
+sta pthread_mutexattr_t mutex_attr;
+
+/* Biến toàn cục để lưu thời điểm bắt đầu của hệ thống (dùng cho pal_sys_get_tick) */
 static ui32 start_tick_ms = 0;
+
+#ifdef KLEE_IN_USE
+  #include <klee/klee.h>
+  static int lock_count = 0; // Biến này chỉ tồn tại khi phân tích KLEE
+#endif
 
 /* --- IMPLEMENTATION CHO PAL_CORE.H --- */
 
 void pal_core_init(void) {
-    pal_linux_init_env();
+  pal_linux_init_env();
 }
 
 void pal_enter_critical(void) {
+  #ifndef KLEE_IN_USE
     pthread_mutex_lock(&ciedpc_mutex);
+  #else
+    klee_assert(lock_count == 0 && "Error: Double Lock detected!");
+    lock_count++;
+  #endif
 }
 
 void pal_exit_critical(void) {
+  #ifndef KLEE_IN_USE
     pthread_mutex_unlock(&ciedpc_mutex);
+  #else
+    lock_count--;
+    klee_assert(lock_count == 0 && "Error: Unbalanced Unlock detected!");
+  #endif
 }
 
 ui8 pal_math_get_highest_bit16(ui16 mask) {
-    if (mask == 0) return 0xFF;
-    /* 31 - CLZ của 32-bit mang lại vị trí bit cao nhất (0-15) */
-    return (ui8)(31 - __builtin_clz((uint32_t)mask));
+  if (mask == 0) return 0xFF;
+  /* 31 - CLZ của 32-bit mang lại vị trí bit cao nhất (0-15) */
+  return (ui8)(31 - __builtin_clz((uint32_t)mask));
 }
 
 ui32 pal_sys_get_tick(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    ui32 current_ms = (ui32)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
-    return current_ms - start_tick_ms;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  ui32 current_ms = (ui32)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+  return current_ms - start_tick_ms;
 }
 
 void pal_sys_reset(void) {
-    printf("[System] Linux Simulation: Performing System Reset...\n");
-    pal_linux_cleanup();
-    /* Trong mô phỏng, reset thường là khởi động lại tiến trình hoặc thoát */
-    exit(0); 
+  printf("[System] Linux Simulation: Performing System Reset...\n");
+  pal_linux_cleanup();
+  /* Trong mô phỏng, reset thường là khởi động lại tiến trình hoặc thoát */
+  exit(0); 
 }
 
 void pal_sys_fatal(const char* file, ui32 line, const char* msg) {
-    fprintf(stderr, "\n[FATAL ERROR] %s\n", msg);
-    fprintf(stderr, "Location: %s:%u\n", file, line);
-    pal_linux_cleanup();
-    abort(); // Tạo core dump để debug
+  fprintf(stderr, "\n[FATAL ERROR] %s\n", msg);
+  fprintf(stderr, "Location: %s:%u\n", file, line);
+  pal_linux_cleanup();
+  abort(); // Tạo core dump để debug
 }
 
 /* --- LINUX SPECIFIC FUNCTIONS --- */
 
 void pal_linux_init_env(void) {
-    /* 1. Khởi tạo Mutex hỗ trợ khóa lồng nhau (Recursive) */
-    pthread_mutexattr_init(&mutex_attr);
-    pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&ciedpc_mutex, &mutex_attr);
+  /* 1. Khởi tạo Mutex hỗ trợ khóa lồng nhau (Recursive) */
+  pthread_mutexattr_init(&mutex_attr);
+  pthread_mutexattr_settype(&mutex_attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&ciedpc_mutex, &mutex_attr);
 
-    /* 2. Đăng ký xử lý tín hiệu hệ thống Ctrl+C */
-    signal(SIGINT, pal_signal_handler);
+  /* 2. Đăng ký xử lý tín hiệu hệ thống Ctrl+C */
+  signal(SIGINT, pal_signal_handler);
 
-    /* 3. Lưu mốc thời gian bắt đầu */
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    start_tick_ms = (ui32)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+  /* 3. Lưu mốc thời gian bắt đầu */
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  start_tick_ms = (ui32)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
 void pal_linux_simulate_interrupt(ui8 task_id, ui8 signal) {
-    /* Giả lập việc nạp tín hiệu từ ngoại vi vào Bridge của Core */
-    ciedpc_task_post_isr(task_id, signal);
+  /* Giả lập việc nạp tín hiệu từ ngoại vi vào Bridge của Core */
+  ciedpc_task_post_isr(task_id, signal);
 }
 
 /* Hàm này phải match với pthread callback */
 void* pal_linux_simulate_tick_thread(void* arg) {
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = 1000000; // 1ms
+  struct timespec ts;
+  ts.tv_sec = 0;
+  ts.tv_nsec = 1000000; // 1ms
 
-    while (1) {
-        nanosleep(&ts, NULL);
-        /* Gọi nhịp đập của Core */
-        ciedpc_timer_tick(); 
-    }
-    return NULL;
+  while (1) {
+      nanosleep(&ts, NULL);
+      /* Gọi nhịp đập của Core */
+      ciedpc_timer_tick(); 
+  }
+  return NULL;
 }
 
 void pal_linux_cleanup(void) {
-    pthread_mutex_destroy(&ciedpc_mutex);
-    pthread_mutexattr_destroy(&mutex_attr);
+  pthread_mutex_destroy(&ciedpc_mutex);
+  pthread_mutexattr_destroy(&mutex_attr);
 }
 
 void pal_signal_handler(int signum) {
-    if (signum == SIGINT) {
-        printf("\n[System] Caught SIGINT (Ctrl+C), exiting gracefully...\n");
-        pal_linux_cleanup();
-        exit(0);
-    }
+  if (signum == SIGINT) {
+    printf("\n[System] Caught SIGINT (Ctrl+C), exiting gracefully...\n");
+    pal_linux_cleanup();
+    exit(0);
+  }
 }

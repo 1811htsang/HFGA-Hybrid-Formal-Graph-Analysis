@@ -140,6 +140,11 @@ ciedpc_msg_t* ciedpc_msg_alloc(ui16 des_task_id, ui8 sig, ui16 size) {
 	}
 
 	pal_enter_critical(); // Đảm bảo an toàn khi truy cập Pool trong môi trường đa tác vụ hoặc ISR
+
+	#ifdef KLEE_IN_USE
+		// pal_enter_critical(); // Giả lập mẫu lỗi khi có nhiều hơn 10 lần vào critical section, có thể do lỗi deadlock hoặc pool cạn kiệt
+	#endif
+
 	msg = internal_ciedpc_msg_pool_pop(pool_header);
 	pal_exit_critical();
 
